@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Extreme Hand Tracking FX</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #020204; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
+  #canvas { display: block; width: 100vw; height: 100vh; filter: contrast(1.2) saturate(1.2); }
+  video { display: none; }
+
+  #ui {
+    position: fixed; top: 16px; left: 50%;
+    transform: translateX(-50%);
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; z-index: 10;
+    max-width: 95vw;
+  }
+  .btn {
+    background: rgba(20,20,30,0.6);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: rgba(255,255,255,0.6); padding: 8px 18px;
+    border-radius: 4px; cursor: pointer;
+    font-size: 12px; font-weight: bold; letter-spacing: 0.1em;
+    text-transform: uppercase;
+    transition: all 0.15s ease-out;
+  }
+  .btn:hover { background: rgba(50,50,70,0.8); color: #fff; }
+  .btn.active {
+    background: rgba(200,0,50,0.8);
+    border-color: #ff3366; color: #fff;
+    box-shadow: 0 0 15px rgba(255, 0, 50, 0.5);
+  }
+
+  #hud {
+    position: fixed; top: 16px; right: 16px;
+    background: rgba(0,0,0,0.8);
+    border: 1px solid rgba(255,50,50,0.3);
+    border-radius: 4px; padding: 12px 16px;
+    color: rgba(255,255,255,0.6); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    line-height: 2.1; z-index: 10;
+  }
+  #hud b { color: #fff; font-weight: 700; text-shadow: 0 0 5px rgba(255,255,255,0.5); }
+  .hud-highlight { color: #0ff !important; }
+
+  #status {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    color: rgba(255,50,50,0.7); font-size: 14px; font-weight: bold;
+    text-transform: uppercase; letter-spacing: 0.2em;
+    z-index: 10; pointer-events: none; text-align: center;
+  }
+
+  #overlay {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 30; background: #020204;
+  }
+  #overlay h1 {
+    font-size: 42px; font-weight: 900; color: #fff; letter-spacing: 0.15em;
+    margin-bottom: 10px; text-transform: uppercase;
+    text-shadow: 3px 3px 0 #f00, -3px -3px 0 #0ff;
+  }
+  #overlay p {
+    color: rgba(255,255,255,0.5); font-size: 13px; margin-bottom: 36px;
+    max-width: 480px; text-transform: uppercase; text-align: center;
+    line-height: 1.8; letter-spacing: 0.1em;
+  }
+  #startbtn {
+    background: transparent; border: 2px solid #ff0044; color: #fff;
+    padding: 16px 48px; font-weight: bold; cursor: pointer;
+    font-size: 16px; letter-spacing: 0.1em; text-transform: uppercase;
+    transition: all 0.2s; box-shadow: 0 0 20px rgba(255, 0, 68, 0.2);
+  }
+  #startbtn:hover { background: #ff0044; box-shadow: 0 0 30px rgba(255, 0, 68, 0.6); }
+  #loadmsg { color: rgba(255,255,255,0.4); font-size: 12px; margin-top: 22px; text-transform: uppercase; }
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+<video id="video" playsinline autoplay muted></video>
+
+<div id="ui">
+  <button class="btn active" onclick="setMode('scanner')">👁️ Scanner</button>
+  <button class="btn" onclick="setMode('thermal')">🌡️ Thermal</button>
+  <button class="btn" onclick="setMode('hologlass')">🪞 HoloGlass</button>
+  <button class="btn" onclick="setMode('xray')">💀 X-Ray</button>
+  <button class="btn" onclick="setMode('nightvision')">🟢 NightVis</button>
+  <button class="btn" onclick="setMode('ghost')">👻 Ghost</button>
+  <button class="btn" onclick="setMode('overcharge')">⚡ Charge</button>
+  <button class="btn" onclick="setMode('nodegrid')">🕸️ Grid</button>
+  <button class="btn" onclick="setMode('symbiote')">🕷️ Venom</button>
+  <button class="btn" onclick="setMode('inferno')">🔥 Fire</button>
+  <button class="btn" onclick="setMode('blackhole')">🌌 Void</button>
+  <button class="btn" onclick="setMode('shockwave')">💥 Shock</button>
+  <button class="btn" onclick="setMode('glitch')">👾 Glitch</button>
+  <button class="btn" onclick="setMode('laser')">🎯 Laser</button>
+</div>
+
+<div id="hud">
+  Mode: <b id="h-mode">scanner</b><br>
+  Target: <b id="h-hands">0</b> | Vel: <b id="h-vel">—</b><br>
+  Sign L: <b id="h-gl" class="hud-highlight">—</b><br>
+  Sign R: <b id="h-gr" class="hud-highlight">—</b>
+</div>
+
+<div id="status">AWAITING TARGET INPUT</div>
+
+<div id="overlay">
+  <h1>Extreme FX v7</h1>
+  <p>Real-time dual hand tracking engine.<br>Aggressive Tracking & Ghost Memory active.</p>
+  <button id="startbtn" onclick="startApp()">Engage Systems</button>
+  <div id="loadmsg"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
+
+<script>
+// ─── SETUP ──────────────────────────────────────────────────────
+// Using willReadFrequently to optimize the canvas drawing queue
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d', { willReadFrequently: true });
+const video  = document.getElementById('video');
+const statusEl = document.getElementById('status');
+const loadmsg  = document.getElementById('loadmsg');
+
+let W, H;
+function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+resize();
+window.addEventListener('resize', resize);
+
+// ─── STATE ──────────────────────────────────────────────────────
+let mode    = 'scanner';
+let handsLM = [];
+let prevLM  = [];
+let gestures = []; 
+let t       = 0;
+
+// Tracking Persistence Variables
+let trackingMemory = 0;
+const MAX_MEMORY = 8; // Frames to hold tracking if camera skips
+
+let particles   = [];
+let matrixDrops = [];
+let shockwaves  = [];
+let timeEchoes  = [];
+let ghostMasks  = [];
+
+const HAND_HUE  = [190, 15]; 
+
+function setMode(m) {
+  mode = m;
+  particles = []; matrixDrops = []; shockwaves = []; timeEchoes = []; ghostMasks = [];
+  document.querySelectorAll('.btn').forEach(b =>
+    b.classList.toggle('active', b.textContent.toLowerCase().includes(m))
+  );
+  document.getElementById('h-mode').textContent = m;
+}
+
+// ─── HAND UTILS & GESTURES ──────────────────────────────────────
+const CONN = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+const TIPS = [4,8,12,16,20];
+
+function pt(lm, i) { return { x: (1 - lm[i].x) * W, y: lm[i].y * H }; }
+
+function handVel(hi) {
+  if (!handsLM[hi] || !prevLM[hi]) return 0;
+  let s = 0;
+  for (let i = 0; i < 21; i++) {
+    const a = pt(handsLM[hi], i), b = pt(prevLM[hi], i);
+    s += Math.hypot(a.x-b.x, a.y-b.y);
+  }
+  return s / 21;
+}
+
+function getGesture(lm) {
+  const d = (p1, p2) => Math.hypot(p1.x-p2.x, p1.y-p2.y);
+  const palm = pt(lm, 0);
+  const ref = d(pt(lm, 5), palm);
+
+  const isIndexOpen = d(pt(lm, 8), palm) > ref * 1.8;
+  const isMidOpen   = d(pt(lm, 12), palm) > ref * 1.8;
+  const isRingOpen  = d(pt(lm, 16), palm) > ref * 1.8;
+  const isPinkyOpen = d(pt(lm, 20), palm) > ref * 1.8;
+  
+  const pinchDist = d(pt(lm, 4), pt(lm, 8));
+
+  if (pinchDist < ref * 0.4 && !isMidOpen && !isRingOpen && !isPinkyOpen) return 'pinch';
+  if (!isIndexOpen && !isMidOpen && !isRingOpen && !isPinkyOpen) return 'fist';
+  if (isIndexOpen && !isMidOpen && !isRingOpen && !isPinkyOpen) return 'point';
+  if (isIndexOpen && !isMidOpen && !isRingOpen && isPinkyOpen) return 'rock';
+  if (isIndexOpen && isMidOpen && isRingOpen && isPinkyOpen) return 'open';
+  
+  return 'neutral';
+}
+
+function drawSkeleton(lm, baseHue, alpha, thick=1.5) {
+  alpha = Math.max(0, alpha);
+  CONN.forEach(([a,b]) => {
+    const pa = pt(lm,a), pb = pt(lm,b);
+    ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y);
+    ctx.strokeStyle = `hsla(${baseHue},100%,60%,${alpha})`; ctx.lineWidth = thick; ctx.stroke();
+  });
+}
+
+// ─── THE POLYGON MASK ENGINE (ALWAYS CONNECTED) ──────────────────
+function drawPolyMask(filterFn, transformFn) {
+  let polys = [];
+  
+  if (handsLM.length === 2) {
+    polys.push([
+      pt(handsLM[0],0), pt(handsLM[0],4), pt(handsLM[0],8), pt(handsLM[0],12), pt(handsLM[0],16), pt(handsLM[0],20),
+      pt(handsLM[1],20), pt(handsLM[1],16), pt(handsLM[1],12), pt(handsLM[1],8), pt(handsLM[1],4), pt(handsLM[1],0)
+    ]);
+  } else if (handsLM.length === 1) {
+    polys.push([pt(handsLM[0],0), pt(handsLM[0],4), pt(handsLM[0],8), pt(handsLM[0],12), pt(handsLM[0],16), pt(handsLM[0],20)]);
+  }
+
+  polys.forEach((poly, idx) => {
+    const hue = handsLM.length === 2 ? 280 : HAND_HUE[0]; 
+    
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(poly[0].x, poly[0].y);
+    for(let i=1; i<poly.length; i++) ctx.lineTo(poly[i].x, poly[i].y);
+    ctx.closePath();
+    
+    ctx.clip(); 
+    
+    ctx.translate(W,0); ctx.scale(-1,1); 
+    if (transformFn) transformFn(ctx, idx); 
+    
+    ctx.filter = filterFn(idx); 
+    ctx.drawImage(video, 0, 0, W, H);
+    ctx.restore();
+
+    ctx.beginPath();
+    ctx.moveTo(poly[0].x, poly[0].y);
+    for(let i=1; i<poly.length; i++) ctx.lineTo(poly[i].x, poly[i].y);
+    ctx.closePath();
+    
+    ctx.strokeStyle = `hsla(${hue}, 100%, 50%, 0.3)`; ctx.lineWidth = 8; ctx.stroke();
+    ctx.strokeStyle = `hsla(${hue}, 100%, 70%, 0.8)`; ctx.lineWidth = 2; ctx.stroke();
+  });
+
+  return polys; 
+}
+
+// 1. SCANNER
+function fxScanner() {
+  drawPolyMask(
+    () => gestures.includes('fist') ? 'invert(100%) contrast(150%) hue-rotate(180deg)' : 'grayscale(100%) contrast(200%) brightness(1.2)'
+  );
+  const scanY = (t * 8) % H;
+  ctx.beginPath(); ctx.moveTo(0, scanY); ctx.lineTo(W, scanY);
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth=2; ctx.stroke();
+}
+
+// 2. THERMAL
+function fxThermal() {
+  drawPolyMask(
+    () => gestures.includes('fist') 
+      ? 'saturate(300%) hue-rotate(180deg) invert(100%) contrast(150%)' 
+      : 'saturate(500%) hue-rotate(90deg) contrast(200%) invert(20%)' 
+  );
+}
+
+// 3. HOLOGLASS
+function fxHoloGlass() {
+  drawPolyMask(
+    () => 'hue-rotate(180deg) saturate(200%) blur(4px) contrast(150%)',
+    (c) => {
+       if (!gestures.includes('fist')) {
+           c.translate(0, H); c.scale(1, -1); 
+       } else {
+           c.translate(W/2, H/2); c.rotate(Math.PI); c.translate(-W/2, -H/2); 
+       }
+    }
+  );
+}
+
+// 4. X-RAY
+function fxXRay() {
+  drawPolyMask(
+    () => gestures.includes('fist')
+      ? 'invert(100%) sepia(100%) hue-rotate(300deg) saturate(500%) contrast(200%)' 
+      : 'invert(100%) sepia(100%) hue-rotate(130deg) saturate(300%) contrast(150%)' 
+  );
+  handsLM.forEach((lm, hi) => drawSkeleton(lm, HAND_HUE[hi], 1, 3)); 
+}
+
+// 5. NIGHTVISION
+function fxNightVision() {
+  drawPolyMask(() => 'contrast(200%) brightness(150%) sepia(100%) hue-rotate(80deg) saturate(300%)');
+  ctx.fillStyle = 'rgba(0, 255, 0, 0.05)';
+  for (let i = 0; i < H; i += 4) ctx.fillRect(0, i, W, 2);
+}
+
+// 6. GHOST
+function fxGhost() {
+  const currentPolys = drawPolyMask(() => 'invert(100%) hue-rotate(180deg) contrast(120%)');
+  if (t % 3 === 0 && currentPolys.length > 0) currentPolys.forEach(p => ghostMasks.push({ poly: p, life: 1.0 }));
+  ghostMasks.forEach(ghost => {
+    ctx.beginPath();
+    ctx.moveTo(ghost.poly[0].x, ghost.poly[0].y);
+    for(let i=1; i<ghost.poly.length; i++) ctx.lineTo(ghost.poly[i].x, ghost.poly[i].y);
+    ctx.closePath();
+    ctx.strokeStyle = `rgba(0, 255, 255, ${ghost.life * 0.5})`; ctx.lineWidth = 1; ctx.stroke();
+    ghost.life -= 0.02;
+  });
+  ghostMasks = ghostMasks.filter(g => g.life > 0);
+}
+
+
+// ─── FX: OVERCHARGE ──────────────────────────────────
+function drawLightning(a, b, hue, thickness, extreme) {
+  const d = Math.hypot(a.x-b.x, a.y-b.y);
+  if (d > (extreme ? 1000 : 400)) return; 
+  const steps = Math.max(2, Math.floor(d / 20)); 
+  
+  ctx.beginPath(); ctx.moveTo(a.x, a.y);
+  const spread = extreme ? 0.08 : 0.15; 
+  for (let i=1; i<steps; i++) {
+    const f = i/steps;
+    ctx.lineTo(a.x + (b.x-a.x)*f + (Math.random()-0.5)*d*spread, a.y + (b.y-a.y)*f + (Math.random()-0.5)*d*spread);
+  }
+  ctx.lineTo(b.x, b.y);
+  ctx.strokeStyle = `hsla(${hue}, 100%, 60%, 0.4)`; ctx.lineWidth = thickness * 3; ctx.stroke();
+  ctx.strokeStyle = extreme ? '#fff' : `hsl(${hue + (Math.random()-0.5)*40}, 100%, 80%)`; ctx.lineWidth = thickness; ctx.stroke();
+}
+
+function fxOvercharge() {
+  handsLM.forEach((lm, hi) => {
+    const hue = HAND_HUE[hi]; const tips = TIPS.map(i => pt(lm,i)); const center = pt(lm, 9);
+    
+    if (gestures[hi] === 'fist') {
+      ctx.beginPath(); ctx.arc(center.x, center.y, 40 + Math.random()*20, 0, Math.PI*2);
+      ctx.fillStyle = '#fff'; ctx.fill(); drawSkeleton(lm, hue, 0.8, 4); return;
+    }
+    
+    ctx.beginPath(); ctx.arc(center.x, center.y, 15 + Math.random()*10, 0, Math.PI*2);
+    ctx.fillStyle = `hsla(${hue}, 100%, 70%, 0.5)`; ctx.fill();
+    if (gestures[hi] === 'point') drawLightning(tips[1], {x: tips[1].x, y: 0}, hue, 5, true);
+
+    for (let i = 0; i < tips.length; i++) {
+      if (i < tips.length - 1 && Math.random() > 0.4) drawLightning(tips[i], tips[i+1], hue, 1, false); 
+      if (Math.random() > 0.3) drawLightning(center, tips[i], hue, 1.5, false);
+      ctx.beginPath(); ctx.arc(tips[i].x, tips[i].y, 3+Math.random()*4, 0, Math.PI*2); ctx.fillStyle = '#fff'; ctx.fill(); 
+    }
+    if (handsLM.length === 2 && hi === 0) { 
+        for(let w=0; w<2; w++) drawLightning(pt(handsLM[0],9), pt(handsLM[1],9), 280, 4, true); 
+    }
+    drawSkeleton(lm, hue, 0.4, 2);
+  });
+}
+
+// ─── FX: SYMBIOTE ────────────────────────────────────
+function fxSymbiote() {
+  handsLM.forEach((lm, hi) => {
+    const center = pt(lm, 9); const gest = gestures[hi];
+    ctx.beginPath(); ctx.arc(center.x, center.y, 25, 0, Math.PI*2);
+    ctx.fillStyle = '#000'; ctx.fill();
+
+    let reach = gest === 'open' ? 500 : (gest === 'fist' ? 60 : 250);
+    for (let i = 0; i < 12; i++) {
+      ctx.beginPath(); ctx.moveTo(center.x, center.y);
+      let cx = center.x, cy = center.y, angle = Math.random() * Math.PI * 2;
+      for (let j = 0; j < 5; j++) {
+        cx += Math.cos(angle + (Math.random()-0.5)*2.5) * (reach/5);
+        cy += Math.sin(angle + (Math.random()-0.5)*2.5) * (reach/5);
+        ctx.lineTo(cx, cy);
+      }
+      ctx.strokeStyle = `rgba(0, 0, 0, ${1 - i/12})`; ctx.lineWidth = 4 + Math.random()*6; ctx.stroke();
+    }
+    if (handsLM.length === 2 && hi === 0) {
+      const c1 = pt(handsLM[0], 9), c2 = pt(handsLM[1], 9);
+      for(let k=0; k<4; k++) {
+        ctx.beginPath(); ctx.moveTo(c1.x, c1.y);
+        let cx = c1.x, cy = c1.y;
+        for(let j=0; j<6; j++) {
+          const f = j/6;
+          cx = c1.x + (c2.x-c1.x)*f + (Math.random()-0.5)*200; cy = c1.y + (c2.y-c1.y)*f + (Math.random()-0.5)*200;
+          ctx.lineTo(cx, cy);
+        }
+        ctx.lineTo(c2.x, c2.y);
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 5 + Math.random()*8; ctx.stroke();
+        ctx.strokeStyle = '#9000ff'; ctx.lineWidth = 1; ctx.stroke();
+      }
+    }
+  });
+}
+
+// ─── FX: NODEGRID ────────────
+function fxNodeGrid() {
+  handsLM.forEach((lm, hi) => {
+    const hue = HAND_HUE[hi] + t*2; 
+    const pts = []; for(let i=0; i<21; i++) pts.push(pt(lm, i));
+    const v = handVel(hi);
+    const threshold = 100 + v * 3; 
+
+    ctx.lineWidth = 1;
+    for(let i=0; i<pts.length; i++) {
+      for(let j=i+1; j<pts.length; j++) {
+        const d = Math.hypot(pts[i].x-pts[j].x, pts[i].y-pts[j].y);
+        if(d < threshold) {
+          const alpha = 1 - (d/threshold);
+          ctx.beginPath(); ctx.moveTo(pts[i].x, pts[i].y); ctx.lineTo(pts[j].x, pts[j].y);
+          ctx.strokeStyle = `hsla(${hue}, 100%, 65%, ${alpha})`; ctx.stroke();
+          
+          if (j < pts.length-1 && Math.random() > 0.8) {
+             const k = j+1;
+             if (Math.hypot(pts[i].x-pts[k].x, pts[i].y-pts[k].y) < threshold) {
+               ctx.beginPath(); ctx.moveTo(pts[i].x, pts[i].y); ctx.lineTo(pts[j].x, pts[j].y); ctx.lineTo(pts[k].x, pts[k].y);
+               ctx.fillStyle = `hsla(${hue}, 100%, 50%, ${alpha*0.15})`; ctx.fill();
+             }
+          }
+        }
+      }
+    }
+    pts.forEach((p, idx) => { 
+      const nodeSize = TIPS.includes(idx) ? 6 + Math.sin(t*0.1+idx)*3 : 3;
+      ctx.beginPath(); ctx.arc(p.x, p.y, nodeSize, 0, Math.PI*2); ctx.fillStyle = '#fff'; ctx.fill(); 
+    });
+  });
+}
+
+// ─── FX: INFERNO ──────────────────────────────────
+class Particle {
+  constructor(x, y, hue, vel) {
+    this.x = x; this.y = y; 
+    const speed = 2 + Math.random()*8; 
+    const angle = Math.PI * 1.5 + (Math.random()-0.5)*1.5; 
+    this.vx = Math.cos(angle) * speed; this.vy = Math.sin(angle) * speed;
+    this.life = 1; this.decay = 0.03 + Math.random()*0.04;
+    this.size = 15 + Math.random() * 20;
+    this.hue = hue + (Math.random()-0.5)*40;
+  }
+  update() { this.x += this.vx; this.y += this.vy; this.vy -= 0.2; this.size *= 0.95; this.life -= this.decay; }
+  draw() {
+    if (this.life <= 0) return;
+    ctx.globalAlpha = this.life;
+    ctx.fillStyle = `hsl(${this.hue},100%,60%)`;
+    ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI*2); ctx.fill();
+  }
+}
+
+function fxInferno() {
+  handsLM.forEach((lm, hi) => {
+    const gest = gestures[hi]; const v = handVel(hi);
+    const fireHue = gest === 'fist' ? 200 : (hi === 0 ? 15 : 35); 
+    
+    TIPS.forEach(ti => {
+      const p = pt(lm, ti);
+      for (let i = 0; i < (1 + v*0.5); i++) particles.push(new Particle(p.x, p.y, fireHue, v));
+    });
+    const center = pt(lm, 9);
+    for (let i = 0; i < 2; i++) particles.push(new Particle(center.x, center.y, fireHue, v));
+  });
+
+  ctx.globalCompositeOperation = 'screen';
+  particles = particles.filter(p => p.life > 0).slice(-800);
+  particles.forEach(p => { p.update(); p.draw(); });
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1; 
+}
+
+
+// ─── FX: BLACKHOLE ───────────────────────────────────────────────
+function fxBlackhole() {
+  ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.fillRect(0,0,W,H); 
+  handsLM.forEach((lm, hi) => {
+    const center = pt(lm, 9);
+    let radius = gestures[hi] === 'fist' ? 80 + Math.sin(t*0.2)*10 : (gestures[hi] === 'pinch' ? 10 : (gestures[hi] === 'open' ? 0 : 35));
+    if (radius > 0) {
+      ctx.beginPath(); ctx.arc(center.x, center.y, radius, 0, Math.PI*2); ctx.fillStyle = '#000'; ctx.fill();
+      ctx.beginPath(); ctx.ellipse(center.x, center.y, radius*2.8, radius*0.5, t*0.05, 0, Math.PI*2);
+      ctx.strokeStyle = hi===0?'rgba(0,255,255,0.8)':'rgba(255,50,0,0.8)'; ctx.lineWidth = 3; ctx.stroke();
+    }
+    drawSkeleton(lm, 240, 0.2, 1);
+  });
+}
+
+// ─── FX: SHOCKWAVE ───────────────────────────────────────────────
+function fxShockwave() {
+  handsLM.forEach((lm, hi) => {
+    const center = pt(lm, 9); drawSkeleton(lm, HAND_HUE[hi], 0.5, 2);
+    if ((gestures[hi] === 'pinch' || handVel(hi) > 20) && t%3===0) shockwaves.push({x: center.x, y: center.y, r: 10, alpha: 1, hue: HAND_HUE[hi]});
+  });
+  shockwaves = shockwaves.filter(s => s.alpha > 0);
+  shockwaves.forEach(s => {
+    s.r += 15; s.alpha -= 0.03;
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+    ctx.strokeStyle = `hsla(${s.hue}, 100%, 60%, ${s.alpha})`; ctx.lineWidth = 4 * s.alpha; ctx.stroke();
+  });
+}
+
+// ─── FX: GLITCH ──────────────────────────────────────────────────
+function fxGlitch() {
+  handsLM.forEach((lm, hi) => {
+    const gest = gestures[hi];
+    let amp = gest === 'fist' ? 80 : (gest === 'rock' ? 120 : 30); 
+    const jitterX = (Math.random()-0.5)*amp; const jitterY = (Math.random()-0.5)*amp; const center = pt(lm, 9);
+
+    ctx.save(); ctx.globalCompositeOperation = 'screen'; ctx.translate(jitterX, jitterY); drawSkeleton(lm, 180, 0.9, 4); ctx.restore();
+    ctx.save(); ctx.globalCompositeOperation = 'screen'; ctx.translate(-jitterX, -jitterY); drawSkeleton(lm, 0, 0.9, 4); ctx.restore();
+    drawSkeleton(lm, 0, 1, 1.5); 
+    
+    if (gest !== 'pinch') {
+      for(let k=0; k<6; k++) {
+        if(Math.random() > 0.4) {
+          ctx.fillStyle = Math.random() > 0.5 ? '#f00' : '#0ff';
+          ctx.fillRect(center.x + (Math.random()-0.5)*300, center.y + (Math.random()-0.5)*300, Math.random()*200, 2 + Math.random()*10);
+        }
+      }
+    }
+  });
+}
+
+// ─── FX: LASER ───────────────────────────────────────────────────
+function fxLaser() {
+  handsLM.forEach((lm, hi) => {
+    const hue = HAND_HUE[hi]; const gest = gestures[hi];
+    const pts = []; for(let i=0; i<21; i++) pts.push(pt(lm, i));
+    
+    ctx.strokeStyle = `hsla(${hue}, 100%, 60%, 0.3)`; ctx.lineWidth = gest === 'fist' ? 12 : 6; 
+    ctx.beginPath();
+    for(let i=0; i<pts.length; i++) {
+      for(let j=i+1; j<pts.length; j+=2) {
+        if(Math.hypot(pts[i].x-pts[j].x, pts[i].y-pts[j].y) < (gest==='open'? 300 : 180)) { ctx.moveTo(pts[i].x, pts[i].y); ctx.lineTo(pts[j].x, pts[j].y); }
+      }
+    }
+    ctx.stroke();
+
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = gest === 'fist' ? 3 : 1; ctx.stroke();
+    pts.forEach(p => { ctx.beginPath(); ctx.rect(p.x-4, p.y-4, 8, 8); ctx.fillStyle = '#fff'; ctx.fill(); }); 
+  });
+}
+
+// ─── RENDER LOOP ─────────────────────────────────────────────────
+function loop() {
+  requestAnimationFrame(loop); t++; ctx.clearRect(0,0,W,H);
+
+  if (video.readyState >= 2) {
+    ctx.save(); ctx.translate(W,0); ctx.scale(-1,1); ctx.drawImage(video,0,0,W,H); ctx.restore();
+    ctx.fillStyle = 'rgba(2,2,4,0.35)'; ctx.fillRect(0,0,W,H);
+  } else { ctx.fillStyle = '#020204'; ctx.fillRect(0,0,W,H); }
+
+  if (handsLM.length > 0) {
+    gestures = handsLM.map(lm => getGesture(lm));
+
+    if      (mode==='scanner')    fxScanner();
+    else if (mode==='thermal')    fxThermal();
+    else if (mode==='hologlass')  fxHoloGlass();
+    else if (mode==='xray')       fxXRay();
+    else if (mode==='nightvision')fxNightVision();
+    else if (mode==='ghost')      fxGhost();
+    else if (mode==='overcharge') fxOvercharge();
+    else if (mode==='nodegrid')   fxNodeGrid();
+    else if (mode==='symbiote')   fxSymbiote();
+    else if (mode==='inferno')    fxInferno();
+    else if (mode==='blackhole')  fxBlackhole();
+    else if (mode==='shockwave')  fxShockwave();
+    else if (mode==='glitch')     fxGlitch();
+    else if (mode==='laser')      fxLaser();
+
+    document.getElementById('h-hands').textContent = handsLM.length;
+    document.getElementById('h-vel').textContent = Math.round(handsLM.map((_,i)=>handVel(i)).reduce((a,b)=>a+b,0));
+    document.getElementById('h-gl').textContent = gestures[0] || '—';
+    document.getElementById('h-gr').textContent = gestures[1] || '—';
+  } else {
+    document.getElementById('h-hands').textContent = '0';
+    document.getElementById('h-gl').textContent = '—';
+    document.getElementById('h-gr').textContent = '—';
+  }
+  
+  // Track previous frames for ghost memory
+  prevLM = handsLM.map(lm => JSON.parse(JSON.stringify(lm)));
+}
+loop();
+
+// ─── MEDIAPIPE INIT ──────────────────────────────────────────────
+async function startApp() {
+  document.getElementById('startbtn').disabled = true; document.getElementById('startbtn').textContent = 'BOOTING...';
+  loadmsg.textContent = 'ACCESSING OPTICS...';
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720, facingMode: 'user' } }); } 
+  catch(e) { loadmsg.textContent = '❌ ACCESS DENIED — ALLOW CAMERA INTERFACE.'; document.getElementById('startbtn').disabled = false; document.getElementById('startbtn').textContent = 'RETRY'; return; }
+  video.srcObject = stream; await new Promise(r => { video.onloadedmetadata = r; }); await video.play();
+  loadmsg.textContent = 'LOADING NEURAL NETWORK...';
+
+  let attempts = 0;
+  while (typeof Hands === 'undefined' && attempts < 60) { await new Promise(r => setTimeout(r, 250)); attempts++; }
+  if (typeof Hands === 'undefined') { loadmsg.textContent = '❌ NETWORK FAILURE. CHECK CONNECTION.'; document.getElementById('startbtn').disabled = false; document.getElementById('startbtn').textContent = 'RETRY'; return; }
+
+  const hands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${f}` });
+  
+  // OPTIMIZED: Aggressive AI tracking configuration
+  hands.setOptions({ 
+    maxNumHands: 2, 
+    modelComplexity: 1, 
+    minDetectionConfidence: 0.35, 
+    minTrackingConfidence: 0.35 
+  });
+  
+  hands.onResults(results => {
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) { 
+      handsLM = results.multiHandLandmarks; 
+      trackingMemory = MAX_MEMORY; // Reset ghost memory
+      statusEl.textContent = ''; 
+    } 
+    else { 
+      if (trackingMemory > 0) {
+        // Ghost Memory Active: Use last known position
+        trackingMemory--;
+      } else {
+        handsLM = []; 
+        statusEl.textContent = 'AWAITING TARGET INPUT'; 
+      }
+    }
+  });
+
+  const camera = new Camera(video, { onFrame: async () => { await hands.send({ image: video }); }, width: 1280, height: 720 });
+  await camera.start();
+  document.getElementById('overlay').style.display = 'none'; statusEl.textContent = 'AWAITING TARGET INPUT';
+}
+</script>
+</body>
+</html>
